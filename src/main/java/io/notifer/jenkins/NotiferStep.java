@@ -3,7 +3,6 @@ package io.notifer.jenkins;
 import com.cloudbees.plugins.credentials.CredentialsMatchers;
 import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
-import com.cloudbees.plugins.credentials.domains.URIRequirementBuilder;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.model.Item;
@@ -31,6 +30,7 @@ import java.util.*;
  * Usage in Jenkinsfile:
  * <pre>
  * notifer(
+ *     credentialsId: 'my-topic-token',
  *     topic: 'ci-notifications',
  *     message: 'Build completed',
  *     title: 'Jenkins Build',
@@ -42,32 +42,39 @@ import java.util.*;
 public class NotiferStep extends Step implements Serializable {
     private static final long serialVersionUID = 1L;
 
+    private final String credentialsId;
+    private final String topic;
     private final String message;
-    private String topic;
     private String title;
     private int priority = 3;
     private List<String> tags;
-    private String credentialsId;
-    private String serverUrl;
     private boolean failOnError = false;
 
     /**
-     * Constructor with required message parameter.
+     * Constructor with required parameters.
      */
     @DataBoundConstructor
-    public NotiferStep(@NonNull String message) {
+    public NotiferStep(@NonNull String credentialsId, @NonNull String topic, @NonNull String message) {
+        this.credentialsId = credentialsId;
+        this.topic = topic;
         this.message = message;
     }
 
     // --- Getters ---
 
     @NonNull
-    public String getMessage() {
-        return message;
+    public String getCredentialsId() {
+        return credentialsId;
     }
 
+    @NonNull
     public String getTopic() {
         return topic;
+    }
+
+    @NonNull
+    public String getMessage() {
+        return message;
     }
 
     public String getTitle() {
@@ -82,24 +89,11 @@ public class NotiferStep extends Step implements Serializable {
         return tags;
     }
 
-    public String getCredentialsId() {
-        return credentialsId;
-    }
-
-    public String getServerUrl() {
-        return serverUrl;
-    }
-
     public boolean isFailOnError() {
         return failOnError;
     }
 
     // --- Setters ---
-
-    @DataBoundSetter
-    public void setTopic(String topic) {
-        this.topic = topic;
-    }
 
     @DataBoundSetter
     public void setTitle(String title) {
@@ -114,16 +108,6 @@ public class NotiferStep extends Step implements Serializable {
     @DataBoundSetter
     public void setTags(List<String> tags) {
         this.tags = tags;
-    }
-
-    @DataBoundSetter
-    public void setCredentialsId(String credentialsId) {
-        this.credentialsId = credentialsId;
-    }
-
-    @DataBoundSetter
-    public void setServerUrl(String serverUrl) {
-        this.serverUrl = serverUrl;
     }
 
     @DataBoundSetter
@@ -156,44 +140,16 @@ public class NotiferStep extends Step implements Serializable {
             EnvVars envVars = getContext().get(EnvVars.class);
             PrintStream logger = listener.getLogger();
 
-            NotiferGlobalConfiguration globalConfig = NotiferGlobalConfiguration.get();
-
-            // Resolve server URL (step > global)
-            String serverUrl = step.serverUrl != null && !step.serverUrl.isEmpty()
-                    ? step.serverUrl
-                    : globalConfig.getServerUrl();
-
-            // Resolve topic (step > global)
-            String topic = step.topic != null && !step.topic.isEmpty()
-                    ? step.topic
-                    : globalConfig.getDefaultTopic();
-
-            if (topic == null || topic.isEmpty()) {
-                throw new IllegalArgumentException("Topic is required. Set it in the step or global configuration.");
-            }
-
-            // Resolve credentials (step > global)
-            String credentialsId = step.credentialsId != null && !step.credentialsId.isEmpty()
-                    ? step.credentialsId
-                    : globalConfig.getDefaultCredentialsId();
-
-            if (credentialsId == null || credentialsId.isEmpty()) {
-                throw new IllegalArgumentException("Credentials are required. Set credentialsId in the step or global configuration.");
-            }
-
             // Get token from credentials
-            String token = NotiferGlobalConfiguration.getTokenFromCredentials(credentialsId, run.getParent());
+            String token = getTokenFromCredentials(step.credentialsId, run.getParent());
             if (token == null || token.isEmpty()) {
-                throw new IllegalArgumentException("Could not retrieve token from credentials: " + credentialsId);
+                throw new IllegalArgumentException("Could not retrieve token from credentials: " + step.credentialsId);
             }
 
-            // Expand environment variables in message and title
+            // Expand environment variables
+            String topic = envVars.expand(step.topic);
             String message = envVars.expand(step.message);
             String title = step.title != null ? envVars.expand(step.title) : null;
-            topic = envVars.expand(topic);
-
-            // Resolve priority (step > global default)
-            int priority = step.priority > 0 ? step.priority : globalConfig.getDefaultPriority();
 
             // Expand tags
             List<String> tags = step.tags;
@@ -208,8 +164,8 @@ public class NotiferStep extends Step implements Serializable {
             logger.println("[Notifer] Sending notification to topic: " + topic);
 
             try {
-                NotiferClient client = new NotiferClient(serverUrl, token);
-                NotiferClient.NotiferResponse response = client.send(topic, message, title, priority, tags);
+                NotiferClient client = new NotiferClient(token);
+                NotiferClient.NotiferResponse response = client.send(topic, message, title, step.priority, tags);
 
                 logger.println("[Notifer] Notification sent successfully. ID: " + response.getId());
                 return response;
@@ -224,6 +180,22 @@ public class NotiferStep extends Step implements Serializable {
                     return null;
                 }
             }
+        }
+
+        private String getTokenFromCredentials(String credentialsId, Item item) {
+            StringCredentials credentials = CredentialsMatchers.firstOrNull(
+                    CredentialsProvider.lookupCredentials(
+                            StringCredentials.class,
+                            item,
+                            item instanceof hudson.model.Queue.Task
+                                    ? ((hudson.model.Queue.Task) item).getDefaultAuthentication()
+                                    : ACL.SYSTEM,
+                            Collections.emptyList()
+                    ),
+                    CredentialsMatchers.withId(credentialsId)
+            );
+
+            return credentials != null ? credentials.getSecret().getPlainText() : null;
         }
     }
 
@@ -255,6 +227,20 @@ public class NotiferStep extends Step implements Serializable {
 
         // --- Form Validation ---
 
+        public FormValidation doCheckCredentialsId(@QueryParameter String value) {
+            if (value == null || value.isEmpty()) {
+                return FormValidation.error("Credentials are required");
+            }
+            return FormValidation.ok();
+        }
+
+        public FormValidation doCheckTopic(@QueryParameter String value) {
+            if (value == null || value.isEmpty()) {
+                return FormValidation.error("Topic is required");
+            }
+            return FormValidation.ok();
+        }
+
         public FormValidation doCheckMessage(@QueryParameter String value) {
             if (value == null || value.isEmpty()) {
                 return FormValidation.error("Message is required");
@@ -262,14 +248,9 @@ public class NotiferStep extends Step implements Serializable {
             return FormValidation.ok();
         }
 
-        public FormValidation doCheckTopic(@QueryParameter String value) {
-            // Topic is optional at step level (can use global default)
-            return FormValidation.ok();
-        }
-
         public FormValidation doCheckPriority(@QueryParameter int value) {
             if (value < 1 || value > 5) {
-                return FormValidation.warning("Priority should be between 1 and 5. Using default.");
+                return FormValidation.warning("Priority should be between 1 and 5");
             }
             return FormValidation.ok();
         }
@@ -282,7 +263,6 @@ public class NotiferStep extends Step implements Serializable {
                 @QueryParameter String credentialsId) {
 
             StandardListBoxModel result = new StandardListBoxModel();
-            NotiferGlobalConfiguration globalConfig = NotiferGlobalConfiguration.get();
 
             if (item == null) {
                 if (!Jenkins.get().hasPermission(Jenkins.ADMINISTER)) {
@@ -303,7 +283,7 @@ public class NotiferStep extends Step implements Serializable {
                                     : ACL.SYSTEM,
                             item,
                             StringCredentials.class,
-                            URIRequirementBuilder.fromUri(globalConfig.getServerUrl()).build(),
+                            Collections.emptyList(),
                             CredentialsMatchers.always()
                     )
                     .includeCurrentValue(credentialsId);

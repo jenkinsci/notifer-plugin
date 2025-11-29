@@ -3,7 +3,6 @@ package io.notifer.jenkins;
 import com.cloudbees.plugins.credentials.CredentialsMatchers;
 import com.cloudbees.plugins.credentials.CredentialsProvider;
 import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
-import com.cloudbees.plugins.credentials.domains.URIRequirementBuilder;
 import hudson.*;
 import hudson.model.*;
 import hudson.security.ACL;
@@ -26,32 +25,40 @@ import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * Post-build action for sending notifications to Notifer.
- * Used in freestyle jobs and as post-build step in pipelines.
+ * Used in freestyle jobs.
  */
 public class NotiferNotifier extends Notifier implements SimpleBuildStep {
 
-    private String topic;
+    private final String credentialsId;
+    private final String topic;
     private String message;
     private String title;
-    private int priority = 3;
+    private int priority = 0; // 0 = auto-detect based on result
     private String tags;
-    private String credentialsId;
     private boolean notifySuccess = true;
     private boolean notifyFailure = true;
     private boolean notifyUnstable = true;
     private boolean notifyAborted = false;
 
     @DataBoundConstructor
-    public NotiferNotifier() {
+    public NotiferNotifier(@NonNull String credentialsId, @NonNull String topic) {
+        this.credentialsId = credentialsId;
+        this.topic = topic;
     }
 
     // --- Getters ---
 
+    @NonNull
+    public String getCredentialsId() {
+        return credentialsId;
+    }
+
+    @NonNull
     public String getTopic() {
         return topic;
     }
@@ -70,10 +77,6 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
 
     public String getTags() {
         return tags;
-    }
-
-    public String getCredentialsId() {
-        return credentialsId;
     }
 
     public boolean isNotifySuccess() {
@@ -95,11 +98,6 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
     // --- Setters ---
 
     @DataBoundSetter
-    public void setTopic(String topic) {
-        this.topic = topic;
-    }
-
-    @DataBoundSetter
     public void setMessage(String message) {
         this.message = message;
     }
@@ -111,17 +109,12 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
 
     @DataBoundSetter
     public void setPriority(int priority) {
-        this.priority = Math.max(1, Math.min(5, priority));
+        this.priority = Math.max(0, Math.min(5, priority));
     }
 
     @DataBoundSetter
     public void setTags(String tags) {
         this.tags = tags;
-    }
-
-    @DataBoundSetter
-    public void setCredentialsId(String credentialsId) {
-        this.credentialsId = credentialsId;
     }
 
     @DataBoundSetter
@@ -163,50 +156,33 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
             return;
         }
 
-        NotiferGlobalConfiguration globalConfig = NotiferGlobalConfiguration.get();
-
-        // Resolve values (step > global)
-        String serverUrl = globalConfig.getServerUrl();
-        String resolvedTopic = topic != null && !topic.isEmpty() ? topic : globalConfig.getDefaultTopic();
-        String resolvedCredentialsId = credentialsId != null && !credentialsId.isEmpty()
-                ? credentialsId
-                : globalConfig.getDefaultCredentialsId();
-
-        if (resolvedTopic == null || resolvedTopic.isEmpty()) {
-            logger.println("[Notifer] ERROR: Topic is required");
-            return;
-        }
-
-        if (resolvedCredentialsId == null || resolvedCredentialsId.isEmpty()) {
-            logger.println("[Notifer] ERROR: Credentials are required");
-            return;
-        }
-
-        // Get token
-        String token = NotiferGlobalConfiguration.getTokenFromCredentials(resolvedCredentialsId, run.getParent());
+        // Get token from credentials
+        String token = getTokenFromCredentials(credentialsId, run.getParent());
         if (token == null || token.isEmpty()) {
-            logger.println("[Notifer] ERROR: Could not retrieve token from credentials");
+            logger.println("[Notifer] ERROR: Could not retrieve token from credentials: " + credentialsId);
             return;
         }
+
+        // Expand topic
+        String resolvedTopic = envVars.expand(topic);
 
         // Build default message if not provided
         String resolvedMessage = message;
         if (resolvedMessage == null || resolvedMessage.isEmpty()) {
             resolvedMessage = buildDefaultMessage(run, result);
+        } else {
+            resolvedMessage = envVars.expand(resolvedMessage);
         }
 
         // Build default title if not provided
         String resolvedTitle = title;
         if (resolvedTitle == null || resolvedTitle.isEmpty()) {
             resolvedTitle = buildDefaultTitle(run, result);
+        } else {
+            resolvedTitle = envVars.expand(resolvedTitle);
         }
 
-        // Expand environment variables
-        resolvedTopic = envVars.expand(resolvedTopic);
-        resolvedMessage = envVars.expand(resolvedMessage);
-        resolvedTitle = envVars.expand(resolvedTitle);
-
-        // Determine priority based on result if using default
+        // Determine priority based on result if using auto (0)
         int resolvedPriority = priority > 0 ? priority : getPriorityForResult(result);
 
         // Parse tags
@@ -215,7 +191,7 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         logger.println("[Notifer] Sending notification to topic: " + resolvedTopic);
 
         try {
-            NotiferClient client = new NotiferClient(serverUrl, token);
+            NotiferClient client = new NotiferClient(token);
             NotiferClient.NotiferResponse response = client.send(
                     resolvedTopic, resolvedMessage, resolvedTitle, resolvedPriority, tagList
             );
@@ -224,6 +200,22 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         } catch (NotiferClient.NotiferException e) {
             logger.println("[Notifer] Failed to send notification: " + e.getMessage());
         }
+    }
+
+    private String getTokenFromCredentials(String credentialsId, Item item) {
+        StringCredentials credentials = CredentialsMatchers.firstOrNull(
+                CredentialsProvider.lookupCredentials(
+                        StringCredentials.class,
+                        item,
+                        item instanceof hudson.model.Queue.Task
+                                ? ((hudson.model.Queue.Task) item).getDefaultAuthentication()
+                                : ACL.SYSTEM,
+                        Collections.emptyList()
+                ),
+                CredentialsMatchers.withId(credentialsId)
+        );
+
+        return credentials != null ? credentials.getSecret().getPlainText() : null;
     }
 
     private boolean shouldNotify(Result result) {
@@ -325,14 +317,23 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
 
         // --- Form Validation ---
 
+        public FormValidation doCheckCredentialsId(@QueryParameter String value) {
+            if (value == null || value.isEmpty()) {
+                return FormValidation.error("Credentials are required");
+            }
+            return FormValidation.ok();
+        }
+
         public FormValidation doCheckTopic(@QueryParameter String value) {
-            // Optional - can use global default
+            if (value == null || value.isEmpty()) {
+                return FormValidation.error("Topic is required");
+            }
             return FormValidation.ok();
         }
 
         public FormValidation doCheckPriority(@QueryParameter int value) {
             if (value < 0 || value > 5) {
-                return FormValidation.warning("Priority should be between 1 and 5, or 0 for auto-detect");
+                return FormValidation.warning("Priority should be 0 (auto) or between 1 and 5");
             }
             return FormValidation.ok();
         }
@@ -345,7 +346,6 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
                 @QueryParameter String credentialsId) {
 
             StandardListBoxModel result = new StandardListBoxModel();
-            NotiferGlobalConfiguration globalConfig = NotiferGlobalConfiguration.get();
 
             if (item == null) {
                 if (!Jenkins.get().hasPermission(Jenkins.ADMINISTER)) {
@@ -366,7 +366,7 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
                                     : ACL.SYSTEM,
                             item,
                             StringCredentials.class,
-                            URIRequirementBuilder.fromUri(globalConfig.getServerUrl()).build(),
+                            Collections.emptyList(),
                             CredentialsMatchers.always()
                     )
                     .includeCurrentValue(credentialsId);

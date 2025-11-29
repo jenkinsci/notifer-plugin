@@ -1,16 +1,16 @@
 <?jelly escape='true'?>
 <j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:c="/lib/credentials">
 
-    <f:entry title="${%Message}" field="message">
+    <f:entry title="${%Credentials}" field="credentialsId" description="Topic access token (Secret text)">
+        <c:select/>
+    </f:entry>
+
+    <f:entry title="${%Topic}" field="topic" description="Topic name to send notification to">
         <f:textbox/>
     </f:entry>
 
-    <f:entry title="${%Topic}" field="topic">
-        <f:textbox placeholder="Leave empty to use global default"/>
-    </f:entry>
-
-    <f:entry title="${%Credentials}" field="credentialsId">
-        <c:select/>
+    <f:entry title="${%Message}" field="message" description="Notification message (supports env variables)">
+        <f:textbox/>
     </f:entry>
 
     <f:entry title="${%Title}" field="title">
@@ -28,10 +28,6 @@
     </f:entry>
 
     <f:advanced>
-        <f:entry title="${%Server URL}" field="serverUrl">
-            <f:textbox placeholder="Leave empty to use global configuration"/>
-        </f:entry>
-
         <f:entry field="failOnError">
             <f:checkbox title="${%Fail build on notification error}" default="false"/>
         </f:entry>

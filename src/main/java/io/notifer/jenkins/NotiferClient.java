@@ -29,17 +29,17 @@ public class NotiferClient implements Serializable {
     private static final int TIMEOUT_MS = 30000;
     private static final Gson GSON = new GsonBuilder().create();
 
-    private final String serverUrl;
+    /** Notifer API base URL */
+    public static final String API_URL = "https://app.notifer.io";
+
     private final String token;
 
     /**
      * Create a new Notifer client.
      *
-     * @param serverUrl Base URL of the Notifer server (e.g., https://app.notifer.io)
-     * @param token     Topic access token with write permission
+     * @param token Topic access token with write permission
      */
-    public NotiferClient(String serverUrl, String token) {
-        this.serverUrl = normalizeUrl(serverUrl);
+    public NotiferClient(String token) {
         this.token = token;
     }
 
@@ -57,7 +57,7 @@ public class NotiferClient implements Serializable {
     public NotiferResponse send(String topic, String message, String title, int priority, List<String> tags)
             throws NotiferException {
 
-        String url = buildUrl(topic);
+        String url = API_URL + "/" + topic;
         Map<String, Object> payload = buildPayload(message, title, priority, tags);
 
         LOGGER.log(Level.FINE, "Sending notification to {0}", url);
@@ -96,18 +96,6 @@ public class NotiferClient implements Serializable {
             LOGGER.log(Level.SEVERE, errorMessage, e);
             throw new NotiferException(errorMessage, e);
         }
-    }
-
-    private String normalizeUrl(String url) {
-        if (url == null || url.isEmpty()) {
-            return "https://app.notifer.io";
-        }
-        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
-    }
-
-    private String buildUrl(String topic) {
-        // Use the standard publish endpoint with topic token
-        return serverUrl + "/" + topic;
     }
 
     private Map<String, Object> buildPayload(String message, String title, int priority, List<String> tags) {
