@@ -1,0 +1,5 @@
+<?jelly escape-by-default='true'?>
+<div>
+    Send notifications to Notifer topics from Jenkins pipelines and freestyle jobs.
+    Supports message customization, priority levels, and tags.
+</div>

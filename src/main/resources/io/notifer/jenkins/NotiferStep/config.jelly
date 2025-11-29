@@ -18,13 +18,7 @@
     </f:entry>
 
     <f:entry title="${%Priority}" field="priority">
-        <f:select>
-            <f:option value="1" selected="${instance.priority == 1}">1 - Minimum</f:option>
-            <f:option value="2" selected="${instance.priority == 2}">2 - Low</f:option>
-            <f:option value="3" selected="${instance.priority == 3 or instance.priority == 0}">3 - Default</f:option>
-            <f:option value="4" selected="${instance.priority == 4}">4 - High</f:option>
-            <f:option value="5" selected="${instance.priority == 5}">5 - Maximum</f:option>
-        </f:select>
+        <f:select/>
     </f:entry>
 
     <f:advanced>

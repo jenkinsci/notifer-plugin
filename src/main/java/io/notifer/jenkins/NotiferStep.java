@@ -256,6 +256,19 @@ public class NotiferStep extends Step implements Serializable {
         }
 
         /**
+         * Fill priority dropdown.
+         */
+        public ListBoxModel doFillPriorityItems() {
+            ListBoxModel items = new ListBoxModel();
+            items.add("1 - Minimum", "1");
+            items.add("2 - Low", "2");
+            items.add("3 - Default", "3");
+            items.add("4 - High", "4");
+            items.add("5 - Maximum", "5");
+            return items;
+        }
+
+        /**
          * Fill credentials dropdown.
          */
         public ListBoxModel doFillCredentialsIdItems(

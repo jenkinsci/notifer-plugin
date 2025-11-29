@@ -189,6 +189,7 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         List<String> tagList = parseTags(tags, result, envVars);
 
         logger.println("[Notifer] Sending notification to topic: " + resolvedTopic);
+        logger.println("[Notifer] Message: " + resolvedMessage.replace("\n", "\\n").replace("\r", "\\r"));
 
         try {
             NotiferClient client = new NotiferClient(token);
@@ -336,6 +337,20 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
                 return FormValidation.warning("Priority should be 0 (auto) or between 1 and 5");
             }
             return FormValidation.ok();
+        }
+
+        /**
+         * Fill priority dropdown.
+         */
+        public ListBoxModel doFillPriorityItems() {
+            ListBoxModel items = new ListBoxModel();
+            items.add("Auto (based on result)", "0");
+            items.add("1 - Minimum", "1");
+            items.add("2 - Low", "2");
+            items.add("3 - Default", "3");
+            items.add("4 - High", "4");
+            items.add("5 - Maximum", "5");
+            return items;
         }
 
         /**
