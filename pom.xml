@@ -7,11 +7,11 @@
     <parent>
         <groupId>org.jenkins-ci.plugins</groupId>
         <artifactId>plugin</artifactId>
-        <version>4.75</version>
+        <version>5.28</version>
         <relativePath/>
     </parent>
 
-    <groupId>io.notifer</groupId>
+    <groupId>io.jenkins.plugins</groupId>
     <artifactId>notifer</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <packaging>hpi</packaging>
@@ -27,14 +27,6 @@
         </license>
     </licenses>
 
-    <developers>
-        <developer>
-            <id>notifer</id>
-            <name>Notifer Team</name>
-            <email>support@notifer.io</email>
-        </developer>
-    </developers>
-
     <scm>
         <connection>scm:git:https://github.com/jenkinsci/notifer-plugin.git</connection>
         <developerConnection>scm:git:git@github.com:jenkinsci/notifer-plugin.git</developerConnection>
@@ -43,10 +35,9 @@
     </scm>
 
     <properties>
-        <jenkins.version>2.440.1</jenkins.version>
-        <java.version>17</java.version>
-        <maven.compiler.source>${java.version}</maven.compiler.source>
-        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <jenkins.baseline>2.492</jenkins.baseline>
+        <jenkins.version>${jenkins.baseline}.3</jenkins.version>
+        <hpi.strictBundledArtifacts>true</hpi.strictBundledArtifacts>
     </properties>
 
     <repositories>
@@ -63,35 +54,42 @@
         </pluginRepository>
     </pluginRepositories>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.jenkins.tools.bom</groupId>
+                <artifactId>bom-${jenkins.baseline}.x</artifactId>
+                <version>5473.vb_9533d9e5d88</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <!-- Pipeline support -->
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-step-api</artifactId>
-            <version>678.v3ee58b_469476</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-cps</artifactId>
-            <version>3903.v48a_8836749e9</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-job</artifactId>
-            <version>1400.v7fd111b_ec82f</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-basic-steps</artifactId>
-            <version>1058.vcb_fc1e3a_21a_9</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins.workflow</groupId>
             <artifactId>workflow-durable-task-step</artifactId>
-            <version>1360.v82d13453da_a_f</version>
             <scope>test</scope>
         </dependency>
 
@@ -99,17 +97,14 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>credentials</artifactId>
-            <version>1344.v5a_3f65a_1e173</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>plain-credentials</artifactId>
-            <version>183.va_de8f1dd5a_2b_</version>
         </dependency>
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>credentials-binding</artifactId>
-            <version>681.vf91669a_32e45</version>
             <scope>test</scope>
         </dependency>
 
@@ -117,53 +112,35 @@
         <dependency>
             <groupId>org.jenkins-ci.plugins</groupId>
             <artifactId>structs</artifactId>
-            <version>338.v848422169819</version>
         </dependency>
 
-        <!-- HTTP client -->
+        <!-- HTTP client (API plugin) -->
         <dependency>
-            <groupId>org.apache.httpcomponents</groupId>
-            <artifactId>httpclient</artifactId>
-            <version>4.5.14</version>
+            <groupId>org.jenkins-ci.plugins</groupId>
+            <artifactId>apache-httpcomponents-client-4-api</artifactId>
         </dependency>
 
-        <!-- JSON processing -->
+        <!-- JSON processing (API plugin) -->
         <dependency>
-            <groupId>com.google.code.gson</groupId>
-            <artifactId>gson</artifactId>
-            <version>2.10.1</version>
+            <groupId>io.jenkins.plugins</groupId>
+            <artifactId>gson-api</artifactId>
         </dependency>
 
         <!-- SpotBugs annotations -->
         <dependency>
             <groupId>com.github.spotbugs</groupId>
             <artifactId>spotbugs-annotations</artifactId>
-            <version>4.8.3</version>
             <optional>true</optional>
-        </dependency>
-
-        <!-- Test dependencies -->
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>5.8.0</version>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.jenkins-ci.tools</groupId>
-                <artifactId>maven-hpi-plugin</artifactId>
-                <configuration>
-                    <minimumJavaVersion>${java.version}</minimumJavaVersion>
-                </configuration>
-            </plugin>
             <!-- Skip license plugin - incompatible with newer JDK -->
             <plugin>
                 <groupId>com.cloudbees</groupId>
                 <artifactId>maven-license-plugin</artifactId>
+                <version>2.14</version>
                 <executions>
                     <execution>
                         <id>default</id>
