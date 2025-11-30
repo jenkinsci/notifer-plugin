@@ -2,18 +2,16 @@ package io.notifer.jenkins;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import org.apache.http.HttpEntity;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.config.RequestConfig;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.entity.ContentType;
-import org.apache.http.entity.StringEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
+import hudson.ProxyConfiguration;
+import jenkins.model.Jenkins;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,11 +20,12 @@ import java.util.logging.Logger;
 
 /**
  * HTTP client for communicating with Notifer API.
+ * Uses Jenkins ProxyConfiguration to support corporate proxies.
  */
 public class NotiferClient implements Serializable {
     private static final long serialVersionUID = 1L;
     private static final Logger LOGGER = Logger.getLogger(NotiferClient.class.getName());
-    private static final int TIMEOUT_MS = 30000;
+    private static final int TIMEOUT_SECONDS = 30;
     private static final Gson GSON = new GsonBuilder().create();
 
     /** Notifer API base URL */
@@ -62,25 +61,20 @@ public class NotiferClient implements Serializable {
 
         LOGGER.log(Level.FINE, "Sending notification to {0}", url);
 
-        RequestConfig config = RequestConfig.custom()
-                .setConnectTimeout(TIMEOUT_MS)
-                .setSocketTimeout(TIMEOUT_MS)
-                .setConnectionRequestTimeout(TIMEOUT_MS)
-                .build();
+        try {
+            HttpClient client = getHttpClient();
 
-        try (CloseableHttpClient client = HttpClients.custom()
-                .setDefaultRequestConfig(config)
-                .build()) {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                    .header("Content-Type", "application/json")
+                    .header("X-Topic-Token", token)
+                    .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(payload)))
+                    .build();
 
-            HttpPost request = new HttpPost(url);
-            request.setHeader("Content-Type", "application/json");
-            request.setHeader("X-Topic-Token", token);
-            request.setEntity(new StringEntity(GSON.toJson(payload), ContentType.APPLICATION_JSON));
-
-            HttpResponse response = client.execute(request);
-            int statusCode = response.getStatusLine().getStatusCode();
-            HttpEntity entity = response.getEntity();
-            String responseBody = entity != null ? EntityUtils.toString(entity) : "";
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            int statusCode = response.statusCode();
+            String responseBody = response.body();
 
             if (statusCode >= 200 && statusCode < 300) {
                 LOGGER.log(Level.FINE, "Notification sent successfully: {0}", responseBody);
@@ -91,11 +85,33 @@ public class NotiferClient implements Serializable {
                 throw new NotiferException(errorMessage, statusCode);
             }
 
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException e) {
             String errorMessage = "Failed to send notification: " + e.getMessage();
             LOGGER.log(Level.SEVERE, errorMessage, e);
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             throw new NotiferException(errorMessage, e);
         }
+    }
+
+    /**
+     * Get an HTTP client configured with Jenkins proxy settings if available.
+     */
+    private HttpClient getHttpClient() {
+        Jenkins jenkins = Jenkins.getInstanceOrNull();
+        if (jenkins != null) {
+            ProxyConfiguration proxy = jenkins.proxy;
+            if (proxy != null) {
+                // Use Jenkins proxy-aware HTTP client
+                return proxy.newHttpClient();
+            }
+        }
+        // Fallback to default client if no proxy configured
+        return HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(TIMEOUT_SECONDS))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
     }
 
     private Map<String, Object> buildPayload(String message, String title, int priority, List<String> tags) {

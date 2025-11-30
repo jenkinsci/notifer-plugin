@@ -62,11 +62,20 @@ pipeline {
     }
 
     post {
+        // Use in 'always' block for auto-generated message and priority based on result
+        always {
+            notifer(
+                credentialsId: 'notifer-my-topic',
+                topic: 'ci-builds'
+                // message and priority are auto-generated based on build result
+            )
+        }
+        // Or use specific blocks with custom messages (use single quotes for env vars)
         success {
             notifer(
                 credentialsId: 'notifer-my-topic',
                 topic: 'ci-builds',
-                message: "Build #${BUILD_NUMBER} succeeded",
+                message: 'Build #${BUILD_NUMBER} succeeded',
                 priority: 2
             )
         }
@@ -74,9 +83,9 @@ pipeline {
             notifer(
                 credentialsId: 'notifer-my-topic',
                 topic: 'ci-builds',
-                message: "Build #${BUILD_NUMBER} FAILED!",
+                message: 'Build #${BUILD_NUMBER} FAILED!',
                 priority: 5,
-                tags: ['failure', 'urgent']
+                tags: 'failure, urgent'
             )
         }
     }
@@ -95,13 +104,13 @@ node {
         notifer(
             credentialsId: 'notifer-my-topic',
             topic: 'ci-builds',
-            message: "Build successful: ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+            message: 'Build successful: ${JOB_NAME} #${BUILD_NUMBER}'
         )
     } catch (Exception e) {
         notifer(
             credentialsId: 'notifer-my-topic',
             topic: 'ci-builds',
-            message: "Build failed: ${env.JOB_NAME}\nError: ${e.message}",
+            message: 'Build failed: ${JOB_NAME}',
             priority: 5
         )
         throw e
@@ -122,10 +131,10 @@ node {
 |-----------|------|----------|---------|-------------|
 | `credentialsId` | String | **Yes** | - | Jenkins credentials ID containing the topic token |
 | `topic` | String | **Yes** | - | Topic name to send notification to |
-| `message` | String | **Yes** | - | Notification message (supports env variables) |
-| `title` | String | No | - | Optional message title |
-| `priority` | int | No | 3 | Priority level 1-5 |
-| `tags` | List<String> | No | [] | List of tags (max 5) |
+| `message` | String | No | Auto | Notification message (use `${VAR}` for env vars). Auto-generated if empty. |
+| `title` | String | No | Auto | Optional message title. Auto-generated if empty. |
+| `priority` | int | No | 0 (auto) | 0=auto (based on result), 1-5=manual |
+| `tags` | String | No | - | Comma-separated tags (max 5) |
 | `failOnError` | boolean | No | false | Fail build if notification fails |
 
 ## Post-Build Action Parameters
@@ -158,11 +167,11 @@ The following variables are available in messages:
 ### Different Topics per Environment
 
 ```groovy
+// Use single quotes for env variable substitution by the plugin
 notifer(
-    credentialsId: "notifer-${env.BRANCH_NAME}",
-    topic: "builds-${env.BRANCH_NAME}",
-    message: "Deployed to ${env.BRANCH_NAME}",
-    priority: env.BRANCH_NAME == 'main' ? 4 : 2
+    credentialsId: 'notifer-ci',
+    topic: 'builds-${BRANCH_NAME}',
+    message: 'Deployed to ${BRANCH_NAME}'
 )
 ```
 
@@ -171,13 +180,11 @@ notifer(
 ```groovy
 script {
     def testResults = junit 'target/test-results/*.xml'
+    // Use double quotes here since we need Groovy to evaluate testResults
     notifer(
         credentialsId: 'notifer-ci',
         topic: 'ci-builds',
-        message: """Build Report:
-- Tests: ${testResults.totalCount}
-- Passed: ${testResults.passCount}
-- Failed: ${testResults.failCount}""",
+        message: "Build Report:\n- Tests: ${testResults.totalCount}\n- Passed: ${testResults.passCount}\n- Failed: ${testResults.failCount}",
         priority: testResults.failCount > 0 ? 4 : 2
     )
 }

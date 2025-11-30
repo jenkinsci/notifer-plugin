@@ -2,14 +2,14 @@
 <j:jelly xmlns:j="jelly:core" xmlns:f="/lib/form" xmlns:c="/lib/credentials">
 
     <f:entry title="${%Credentials}" field="credentialsId" description="Topic access token (Secret text)">
-        <c:select/>
+        <c:select class="required"/>
     </f:entry>
 
     <f:entry title="${%Topic}" field="topic" description="Topic name to send notification to">
-        <f:textbox/>
+        <f:textbox class="required"/>
     </f:entry>
 
-    <f:entry title="${%Message}" field="message" description="Use variables: $${BUILD_NUMBER}, $${JOB_NAME}, $${BUILD_URL}. Leave empty for auto-generated.">
+    <f:entry title="${%Message}" field="message" description="Use variables like ${'$'}{BUILD_NUMBER}, ${'$'}{JOB_NAME}. Leave empty for auto-generated.">
         <f:textarea/>
     </f:entry>
 

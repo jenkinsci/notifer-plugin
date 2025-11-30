@@ -14,8 +14,8 @@ import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.model.Jenkins;
 import jenkins.tasks.SimpleBuildStep;
-import org.jenkinsci.Symbol;
 import org.jenkinsci.plugins.plaincredentials.StringCredentials;
+import org.kohsuke.stapler.verb.POST;
 import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
@@ -112,9 +112,26 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         this.priority = Math.max(0, Math.min(5, priority));
     }
 
+    /**
+     * Setter that accepts both String and List from Pipeline scripts.
+     * Converts list to comma-separated string.
+     */
     @DataBoundSetter
-    public void setTags(String tags) {
-        this.tags = tags;
+    public void setTags(Object tags) {
+        if (tags == null) {
+            this.tags = null;
+        } else if (tags instanceof List) {
+            List<?> tagList = (List<?>) tags;
+            if (!tagList.isEmpty()) {
+                this.tags = tagList.stream()
+                    .map(Object::toString)
+                    .collect(java.util.stream.Collectors.joining(","));
+            } else {
+                this.tags = null;
+            }
+        } else {
+            this.tags = tags.toString();
+        }
     }
 
     @DataBoundSetter
@@ -302,7 +319,6 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
      * Descriptor for the notifier.
      */
     @Extension
-    @Symbol("notiferNotify")
     public static class DescriptorImpl extends BuildStepDescriptor<Publisher> {
 
         @NonNull
@@ -317,20 +333,7 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         }
 
         // --- Form Validation ---
-
-        public FormValidation doCheckCredentialsId(@QueryParameter String value) {
-            if (value == null || value.isEmpty()) {
-                return FormValidation.error("Credentials are required");
-            }
-            return FormValidation.ok();
-        }
-
-        public FormValidation doCheckTopic(@QueryParameter String value) {
-            if (value == null || value.isEmpty()) {
-                return FormValidation.error("Topic is required");
-            }
-            return FormValidation.ok();
-        }
+        // Note: credentialsId and topic use class="required" in jelly
 
         public FormValidation doCheckPriority(@QueryParameter int value) {
             if (value < 0 || value > 5) {
@@ -342,6 +345,7 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         /**
          * Fill priority dropdown.
          */
+        @POST
         public ListBoxModel doFillPriorityItems() {
             ListBoxModel items = new ListBoxModel();
             items.add("Auto (based on result)", "0");

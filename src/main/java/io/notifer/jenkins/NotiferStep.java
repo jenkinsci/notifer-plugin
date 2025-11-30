@@ -6,6 +6,7 @@ import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
 import hudson.EnvVars;
 import hudson.Extension;
 import hudson.model.Item;
+import hudson.model.Result;
 import hudson.model.Run;
 import hudson.model.TaskListener;
 import hudson.security.ACL;
@@ -18,6 +19,7 @@ import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
+import org.kohsuke.stapler.verb.POST;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
 import java.io.PrintStream;
@@ -44,20 +46,19 @@ public class NotiferStep extends Step implements Serializable {
 
     private final String credentialsId;
     private final String topic;
-    private final String message;
+    private String message;
     private String title;
-    private int priority = 3;
-    private List<String> tags;
+    private int priority = 0; // 0 = auto-detect based on result
+    private String tags;
     private boolean failOnError = false;
 
     /**
      * Constructor with required parameters.
      */
     @DataBoundConstructor
-    public NotiferStep(@NonNull String credentialsId, @NonNull String topic, @NonNull String message) {
+    public NotiferStep(@NonNull String credentialsId, @NonNull String topic) {
         this.credentialsId = credentialsId;
         this.topic = topic;
-        this.message = message;
     }
 
     // --- Getters ---
@@ -72,7 +73,6 @@ public class NotiferStep extends Step implements Serializable {
         return topic;
     }
 
-    @NonNull
     public String getMessage() {
         return message;
     }
@@ -85,7 +85,7 @@ public class NotiferStep extends Step implements Serializable {
         return priority;
     }
 
-    public List<String> getTags() {
+    public String getTags() {
         return tags;
     }
 
@@ -96,18 +96,40 @@ public class NotiferStep extends Step implements Serializable {
     // --- Setters ---
 
     @DataBoundSetter
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    @DataBoundSetter
     public void setTitle(String title) {
         this.title = title;
     }
 
     @DataBoundSetter
     public void setPriority(int priority) {
-        this.priority = Math.max(1, Math.min(5, priority));
+        this.priority = Math.max(0, Math.min(5, priority));
     }
 
+    /**
+     * Setter that accepts both String and List from Pipeline scripts.
+     * Converts list to comma-separated string.
+     */
     @DataBoundSetter
-    public void setTags(List<String> tags) {
-        this.tags = tags;
+    public void setTags(Object tags) {
+        if (tags == null) {
+            this.tags = null;
+        } else if (tags instanceof List) {
+            List<?> tagList = (List<?>) tags;
+            if (!tagList.isEmpty()) {
+                this.tags = tagList.stream()
+                    .map(Object::toString)
+                    .collect(java.util.stream.Collectors.joining(","));
+            } else {
+                this.tags = null;
+            }
+        } else {
+            this.tags = tags.toString();
+        }
     }
 
     @DataBoundSetter
@@ -139,6 +161,7 @@ public class NotiferStep extends Step implements Serializable {
             Run<?, ?> run = getContext().get(Run.class);
             EnvVars envVars = getContext().get(EnvVars.class);
             PrintStream logger = listener.getLogger();
+            Result result = run.getResult();
 
             // Get token from credentials
             String token = getTokenFromCredentials(step.credentialsId, run.getParent());
@@ -148,24 +171,34 @@ public class NotiferStep extends Step implements Serializable {
 
             // Expand environment variables
             String topic = envVars.expand(step.topic);
-            String message = envVars.expand(step.message);
-            String title = step.title != null ? envVars.expand(step.title) : null;
 
-            // Expand tags
-            List<String> tags = step.tags;
-            if (tags != null) {
-                List<String> expandedTags = new ArrayList<>();
-                for (String tag : tags) {
-                    expandedTags.add(envVars.expand(tag));
-                }
-                tags = expandedTags;
+            // Build default message if not provided
+            String message = step.message;
+            if (message == null || message.isEmpty()) {
+                message = buildDefaultMessage(run, result);
+            } else {
+                message = envVars.expand(message);
             }
+
+            // Build default title if not provided
+            String title = step.title;
+            if (title == null || title.isEmpty()) {
+                title = buildDefaultTitle(run, result);
+            } else {
+                title = envVars.expand(title);
+            }
+
+            // Determine priority based on result if using auto (0)
+            int priority = step.priority > 0 ? step.priority : getPriorityForResult(result);
+
+            // Parse tags from comma-separated string
+            List<String> tags = parseTags(step.tags, result, envVars);
 
             logger.println("[Notifer] Sending notification to topic: " + topic);
 
             try {
                 NotiferClient client = new NotiferClient(token);
-                NotiferClient.NotiferResponse response = client.send(topic, message, title, step.priority, tags);
+                NotiferClient.NotiferResponse response = client.send(topic, message, title, priority, tags);
 
                 logger.println("[Notifer] Notification sent successfully. ID: " + response.getId());
                 return response;
@@ -197,6 +230,66 @@ public class NotiferStep extends Step implements Serializable {
 
             return credentials != null ? credentials.getSecret().getPlainText() : null;
         }
+
+        private String buildDefaultMessage(Run<?, ?> run, Result result) {
+            String jobName = run.getParent().getFullDisplayName();
+            int buildNumber = run.getNumber();
+            String status = result != null ? result.toString() : "RUNNING";
+            String url = Jenkins.get().getRootUrl() + run.getUrl();
+
+            return String.format("Build #%d %s\nJob: %s\nDetails: %s",
+                    buildNumber, status, jobName, url);
+        }
+
+        private String buildDefaultTitle(Run<?, ?> run, Result result) {
+            String jobName = run.getParent().getDisplayName();
+            String status = result != null ? result.toString() : "RUNNING";
+            return String.format("[%s] %s #%d", status, jobName, run.getNumber());
+        }
+
+        private int getPriorityForResult(Result result) {
+            if (result == null || result == Result.SUCCESS) {
+                return 2; // Low priority for success
+            }
+            if (result == Result.UNSTABLE) {
+                return 3; // Medium for unstable
+            }
+            if (result == Result.FAILURE) {
+                return 5; // High for failure
+            }
+            return 3;
+        }
+
+        private List<String> parseTags(String tagsString, Result result, EnvVars envVars) {
+            List<String> tagList = new ArrayList<>();
+
+            // Add result as tag
+            if (result != null) {
+                tagList.add(result.toString().toLowerCase());
+            }
+
+            // Add jenkins tag
+            tagList.add("jenkins");
+
+            // Parse custom tags
+            if (tagsString != null && !tagsString.isEmpty()) {
+                String expanded = envVars.expand(tagsString);
+                String[] parts = expanded.split("[,\\s]+");
+                for (String part : parts) {
+                    String trimmed = part.trim();
+                    if (!trimmed.isEmpty() && tagList.size() < 5) {
+                        tagList.add(trimmed);
+                    }
+                }
+            }
+
+            // Limit to 5 tags
+            if (tagList.size() > 5) {
+                tagList = tagList.subList(0, 5);
+            }
+
+            return tagList;
+        }
     }
 
     /**
@@ -226,31 +319,11 @@ public class NotiferStep extends Step implements Serializable {
         }
 
         // --- Form Validation ---
-
-        public FormValidation doCheckCredentialsId(@QueryParameter String value) {
-            if (value == null || value.isEmpty()) {
-                return FormValidation.error("Credentials are required");
-            }
-            return FormValidation.ok();
-        }
-
-        public FormValidation doCheckTopic(@QueryParameter String value) {
-            if (value == null || value.isEmpty()) {
-                return FormValidation.error("Topic is required");
-            }
-            return FormValidation.ok();
-        }
-
-        public FormValidation doCheckMessage(@QueryParameter String value) {
-            if (value == null || value.isEmpty()) {
-                return FormValidation.error("Message is required");
-            }
-            return FormValidation.ok();
-        }
+        // Note: credentialsId and topic use class="required" in jelly
 
         public FormValidation doCheckPriority(@QueryParameter int value) {
-            if (value < 1 || value > 5) {
-                return FormValidation.warning("Priority should be between 1 and 5");
+            if (value < 0 || value > 5) {
+                return FormValidation.warning("Priority should be 0 (auto) or between 1 and 5");
             }
             return FormValidation.ok();
         }
@@ -258,8 +331,10 @@ public class NotiferStep extends Step implements Serializable {
         /**
          * Fill priority dropdown.
          */
+        @POST
         public ListBoxModel doFillPriorityItems() {
             ListBoxModel items = new ListBoxModel();
+            items.add("Auto (based on result)", "0");
             items.add("1 - Minimum", "1");
             items.add("2 - Low", "2");
             items.add("3 - Default", "3");
