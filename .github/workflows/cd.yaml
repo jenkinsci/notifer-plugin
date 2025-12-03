@@ -12,7 +12,7 @@ jobs:
       should_release: ${{ steps.verify-ci-status.outputs.result == 'success' && steps.interesting-categories.outputs.dominated == 'true' }}
     steps:
       - name: Verify CI status
-        uses: jenkins-infra/verify-ci-status-action@v1.4.2
+        uses: jenkins-infra/verify-ci-status-action@v1.2.2
         id: verify-ci-status
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -52,7 +52,7 @@ jobs:
           java-version: 21
 
       - name: Release
-        uses: jenkins-infra/jenkins-maven-cd-action@v1.4.4
+        uses: jenkins-infra/jenkins-maven-cd-action@v1.4.1
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
