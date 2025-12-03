@@ -22,6 +22,7 @@ import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.verb.POST;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.util.*;
@@ -145,6 +146,8 @@ public class NotiferStep extends Step implements Serializable {
     /**
      * Step execution implementation.
      */
+    @SuppressFBWarnings(value = "SE_TRANSIENT_FIELD_NOT_RESTORED",
+            justification = "Step execution is synchronous and completes immediately, no serialization needed")
     private static class NotiferStepExecution extends SynchronousNonBlockingStepExecution<NotiferClient.NotiferResponse> {
         private static final long serialVersionUID = 1L;
 
@@ -231,6 +234,8 @@ public class NotiferStep extends Step implements Serializable {
             return credentials != null ? credentials.getSecret().getPlainText() : null;
         }
 
+        @SuppressFBWarnings(value = "VA_FORMAT_STRING_USES_NEWLINE",
+                justification = "Intentional \\n for notification message format, not console output")
         private String buildDefaultMessage(Run<?, ?> run, Result result) {
             String jobName = run.getParent().getFullDisplayName();
             int buildNumber = run.getNumber();

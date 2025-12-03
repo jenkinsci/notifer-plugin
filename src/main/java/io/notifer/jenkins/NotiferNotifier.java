@@ -22,6 +22,7 @@ import org.kohsuke.stapler.DataBoundSetter;
 import org.kohsuke.stapler.QueryParameter;
 
 import edu.umd.cs.findbugs.annotations.NonNull;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -255,6 +256,8 @@ public class NotiferNotifier extends Notifier implements SimpleBuildStep {
         return true;
     }
 
+    @SuppressFBWarnings(value = "VA_FORMAT_STRING_USES_NEWLINE",
+            justification = "Intentional \\n for notification message format, not console output")
     private String buildDefaultMessage(Run<?, ?> run, Result result) {
         String jobName = run.getParent().getFullDisplayName();
         int buildNumber = run.getNumber();
